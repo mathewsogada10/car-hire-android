@@ -31,13 +31,17 @@ import ke.carhire.data.files.DataFiles
 import ke.carhire.data.files.PurgePreview
 import ke.carhire.data.repository.Repository
 import ke.carhire.security.Vault
+import ke.carhire.ui.components.DateField
 import ke.carhire.ui.components.ErrorText
+import ke.carhire.ui.components.LocalDisplayTimeZone
+import ke.carhire.util.BusinessDateTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
 fun DataScreen(repository: Repository) {
+    val zone = LocalDisplayTimeZone.current
     val context = LocalContext.current
     val files = remember { DataFiles(context, repository) }
     val scope = rememberCoroutineScope()
@@ -166,7 +170,7 @@ fun DataScreen(repository: Repository) {
                     preview = null
                 }
             ) {
-                Text("${e.createdAt.take(10)} | ${e.id.take(8)}")
+                Text("${BusinessDateTime.display(e.createdAt, zone)} | ${e.id.take(8)}")
             }
         }
         OutlinedTextField(
@@ -199,18 +203,26 @@ fun DataScreen(repository: Repository) {
         ) {
             Text("Acknowledge verified safe storage")
         }
-        OutlinedTextField(
+        DateField(
             through,
             {
                 through = it
                 preview = null
             },
-            label = { Text("Purge through YYYY-MM-DD") },
+            label = "Purge through",
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedButton(
             enabled = !busy,
-            onClick = { run { preview = files.preview(exportId, through) } },
+            onClick = {
+                run {
+                    preview =
+                        files.preview(
+                            exportId,
+                            BusinessDateTime.date(through, "Purge through").toString(),
+                        )
+                }
+            },
         ) {
             Text("Preview eligible purge")
         }

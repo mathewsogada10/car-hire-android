@@ -14,18 +14,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import ke.carhire.LocalRecord
 import ke.carhire.data.repository.Repository
+import ke.carhire.ui.components.LocalDisplayTimeZone
+import ke.carhire.util.BusinessDateTime
 
 @Composable
 fun AuditScreen(repository: Repository, all: List<LocalRecord>) {
-
+    val zone = LocalDisplayTimeZone.current
     var evidence by remember { mutableStateOf("") }
-    LaunchedEffect(all) {
+    LaunchedEffect(all, zone) {
         evidence =
             repository.dao
                 .evidence()
                 .filter { it.kind == "audit" }
                 .take(100)
-                .joinToString("\n\n") { it.payload }
+                .joinToString("\n\n") {
+                    "${BusinessDateTime.display(it.createdAt, zone)}\n${BusinessDateTime.displayPayload(it.payload, zone)}"
+                }
     }
     Text(
         evidence.ifEmpty { "No activity yet" },

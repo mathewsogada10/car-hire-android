@@ -28,10 +28,12 @@ import java.io.IOException
 import ke.carhire.data.local.AppearancePreferences
 import ke.carhire.domain.model.ThemePreference
 import ke.carhire.ui.components.ErrorText
+import ke.carhire.ui.components.LocalDisplayTimeZone
 import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(appearance: AppearancePreferences, onConfigure: () -> Unit) {
+    val zone = LocalDisplayTimeZone.current
     val selected by appearance.theme.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf("") }
@@ -78,6 +80,9 @@ fun SettingsScreen(appearance: AppearancePreferences, onConfigure: () -> Unit) {
         item {
             Text("Current theme: ${if (dark) "Dark" else "Light"}")
             Text("Saved on this device only. System default follows device appearance.")
+            Text(
+                "Time display: ${zone.id}. Timestamps are stored in UTC; business dates and reminder schedules retain the configured business timezone."
+            )
             ErrorText(error)
         }
         item { Text("Business settings", style = MaterialTheme.typography.titleLarge) }

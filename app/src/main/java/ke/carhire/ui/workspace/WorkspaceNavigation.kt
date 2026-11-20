@@ -34,7 +34,6 @@ import kotlinx.coroutines.launch
 internal fun workspaceTitle(page: String): String =
     when (page) {
         "home" -> "Home"
-        "calendar" -> "Hire calendar"
         "data" -> "Data & backups"
         "sync" -> "Sync & data health"
         "audit" -> "Audit"
@@ -82,7 +81,7 @@ fun WorkspaceNavigation(
                     ) {
                         val sections =
                             listOf(
-                                "Overview" to listOf("home", "calendar"),
+                                "Overview" to listOf("home"),
                                 "Business" to Rules.kinds.filterNot { it == "settings" },
                                 "Tools & settings" to listOf("data", "sync", "audit", "settings"),
                             )

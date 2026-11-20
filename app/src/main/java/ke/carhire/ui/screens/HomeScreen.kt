@@ -7,7 +7,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -16,14 +15,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
 import ke.carhire.LocalRecord
 import ke.carhire.domain.rules.Rules
+import ke.carhire.ui.components.DateField
 import ke.carhire.ui.components.ErrorText
+import ke.carhire.ui.components.VehicleChoices
+import ke.carhire.ui.components.VehicleFilter
 import ke.carhire.ui.components.money
+import ke.carhire.util.BusinessDateTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -32,25 +36,31 @@ fun Home(all: List<LocalRecord>) {
     var from by remember { mutableStateOf("${LocalDate.now().year}-01-01") }
     var to by remember { mutableStateOf(LocalDate.now(ZoneId.of("Africa/Nairobi")).toString()) }
     var vehicle by remember { mutableStateOf("") }
+    val vehicles = remember(all) { VehicleChoices(all) }
     var calculation by remember { mutableStateOf<Result<Map<String, Long>>?>(null) }
     LaunchedEffect(all, from, to, vehicle) {
         calculation = null
         calculation =
             withContext(Dispatchers.Default) {
                 runCatching {
-                    Rules.financials(all, LocalDate.parse(from), LocalDate.parse(to), vehicle)
+                    Rules.financials(
+                        all,
+                        BusinessDateTime.date(from, "From"),
+                        BusinessDateTime.date(to, "Through"),
+                        vehicle,
+                    )
                 }
             }
     }
     val result = calculation?.getOrNull()
-    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp)) {
+    Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp).testTag("dashboard")) {
         Text("Fleet overview", style = MaterialTheme.typography.headlineMedium)
         Text(
             "KES | Nairobi | Revenue: actual-return date. Cash: received date. Deposits are separate."
         )
-        OutlinedTextField(from, { from = it }, label = { Text("From YYYY-MM-DD") })
-        OutlinedTextField(to, { to = it }, label = { Text("Through YYYY-MM-DD") })
-        OutlinedTextField(vehicle, { vehicle = it }, label = { Text("Vehicle UUID (optional)") })
+        DateField(from, { from = it }, "From YYYY-MM-DD")
+        DateField(to, { to = it }, "Through YYYY-MM-DD")
+        VehicleFilter(vehicles, vehicle) { vehicle = it }
         if (calculation == null) Text("Calculating...")
         calculation?.exceptionOrNull()?.let { ErrorText("Cannot calculate report: ${it.message}") }
         if (all.any { it.syncState == "Purged Locally" })
@@ -65,7 +75,11 @@ fun Home(all: List<LocalRecord>) {
                             .replace(Regex("([a-z])([A-Z])"), "$1 $2")
                             .replaceFirstChar { it.titlecase(Locale.ROOT) }
                     )
-                    Text(money(amount), style = MaterialTheme.typography.headlineSmall)
+                    Text(
+                        money(amount),
+                        style = MaterialTheme.typography.headlineSmall,
+                        modifier = Modifier.testTag("dashboard-$key"),
+                    )
                 }
             }
         }

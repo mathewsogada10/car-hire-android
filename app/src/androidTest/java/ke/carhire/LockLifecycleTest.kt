@@ -3,6 +3,7 @@ package ke.carhire
 import android.content.Context
 import android.os.ParcelFileDescriptor
 import android.view.inputmethod.InputMethodManager
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.core.view.ViewCompat
@@ -11,14 +12,19 @@ import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.platform.app.InstrumentationRegistry
+import java.time.LocalDate
+import java.time.ZoneId
+import java.util.TimeZone
 import ke.carhire.data.local.AppearancePreferences
 import ke.carhire.domain.model.ThemePreference
 import ke.carhire.security.Vault
+import ke.carhire.ui.editor.Forms
 import ke.carhire.util.text
 import ke.carhire.util.uuid
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -26,10 +32,17 @@ import org.junit.Test
 class LockLifecycleTest {
     @get:Rule val compose = createEmptyComposeRule()
     private val lockText = "Unlock your private business workspace"
+    private val originalZone = TimeZone.getDefault()
 
     @Before
     fun startWithALockedSession() {
+        TimeZone.setDefault(TimeZone.getTimeZone("Africa/Nairobi"))
         ApplicationProvider.getApplicationContext<CarHireApp>().session.lock()
+    }
+
+    @After
+    fun restoreDeviceZone() {
+        TimeZone.setDefault(originalZone)
     }
 
     private fun awaitLock(visible: Boolean) {
@@ -97,6 +110,16 @@ class LockLifecycleTest {
         compose.onNodeWithText(name).assertIsSelected()
     }
 
+    private fun awaitDashboardAmount(key: String, amount: Long) {
+        val expected = ke.carhire.ui.components.money(amount)
+        compose.waitUntil(10000) {
+            compose.onAllNodesWithTag("dashboard-$key").fetchSemanticsNodes().any { node ->
+                node.config[SemanticsProperties.Text].any { it.text == expected }
+            }
+        }
+        compose.onNodeWithTag("dashboard-$key").assertTextEquals(expected)
+    }
+
     @Test
     fun hamburgerMenuReachesLowerSectionsAndDismissesWithoutLosingDrafts() {
         Vault(ApplicationProvider.getApplicationContext<Context>()).setPin("527491")
@@ -104,6 +127,7 @@ class LockLifecycleTest {
             unlock(scenario)
             compose.onAllNodes(hasSetTextAction()).onFirst().performTextReplacement("draft")
             openNavigation()
+            compose.onNodeWithText("Hire calendar").assertDoesNotExist()
             compose
                 .onNode(hasText("Home") and hasAnyAncestor(hasTestTag("workspace-navigation")))
                 .assertIsSelected()
@@ -211,7 +235,7 @@ class LockLifecycleTest {
 
     private fun chooseTime(field: String, hour: String) {
         compose.onNodeWithTag("record-editor").performScrollToNode(hasTestTag("instant-$field"))
-        compose.onNodeWithTag("instant-$field").performClick()
+        compose.onNodeWithTag("calendar-$field").performClick()
         compose.onNodeWithText("Next: time").performClick()
         val inputs =
             compose.onAllNodes(hasSetTextAction() and hasAnyAncestor(hasTestTag("date-time-clock")))
@@ -264,6 +288,13 @@ class LockLifecycleTest {
             chooseTime("plannedEnd", "12")
             compose
                 .onNodeWithTag("record-editor")
+                .performScrollToNode(hasTestTag("instant-plannedStart"))
+            compose
+                .onNodeWithTag("instant-plannedStart")
+                .performTextReplacement("${LocalDate.now(ZoneId.of("Africa/Nairobi"))}T10:30")
+            hideKeyboard(scenario)
+            compose
+                .onNodeWithTag("record-editor")
                 .performScrollToNode(hasText("Agreed charge (KES)"))
             compose.onNodeWithText("Agreed charge (KES)").performTextReplacement("2500")
             compose
@@ -278,7 +309,7 @@ class LockLifecycleTest {
                     row.kind == "hires" && row.data().text("vehicleId") == vehicle
                 }
             }
-            org.junit.Assert.assertTrue(saved.data().text("plannedStart").endsWith("T07:00:00Z"))
+            org.junit.Assert.assertTrue(saved.data().text("plannedStart").endsWith("T07:30:00Z"))
             org.junit.Assert.assertTrue(saved.data().text("plannedEnd").endsWith("T09:00:00Z"))
             org.junit.Assert.assertFalse(saved.data().containsKey("actualStart"))
             org.junit.Assert.assertFalse(saved.data().containsKey("actualEnd"))
@@ -293,7 +324,292 @@ class LockLifecycleTest {
                 .performScrollToNode(hasTestTag("instant-plannedStart"))
             compose
                 .onNodeWithTag("instant-plannedStart")
+                .assertTextContains("10:30", substring = true)
+        }
+    }
+
+    private data class HireFixture(val hire: String, val vehicle: String, val registration: String)
+
+    private fun seedHireFixture(
+        app: CarHireApp,
+        status: String = "Booked",
+        notes: String = "",
+    ): HireFixture {
+        val vehicle = uuid()
+        val customer = uuid()
+        val hire = uuid()
+        val registration = "PAY" + vehicle.replace("-", "").take(8).uppercase()
+        runBlocking {
+            app.repository.save(
+                "vehicles",
+                vehicle,
+                buildJsonObject {
+                    put("registration", registration)
+                    put("make", "Toyota")
+                    put("model", "Axio")
+                    put("status", "Available")
+                },
+            )
+            app.repository.save(
+                "customers",
+                customer,
+                buildJsonObject {
+                    put("name", "Payment fixture $customer")
+                    put("phone", "0700000000")
+                },
+            )
+            app.repository.save(
+                "hires",
+                hire,
+                buildJsonObject {
+                    put("vehicleId", vehicle)
+                    put("customerId", customer)
+                    put("plannedStart", "2026-12-01T07:00:00Z")
+                    put("plannedEnd", "2026-12-02T09:00:00Z")
+                    put("status", status)
+                    put("notes", notes)
+                    put("chargeMinor", 250000)
+                },
+            )
+        }
+        return HireFixture(hire, vehicle, registration)
+    }
+
+    @Test
+    fun paymentHireChoicesShowRegistrationAndLocalTimeWithTypedAndCalendarDates() {
+        val app = ApplicationProvider.getApplicationContext<CarHireApp>()
+        Vault(app).setPin("527491")
+        val fixture = seedHireFixture(app)
+        val hire = fixture.hire
+        val registration = fixture.registration
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            unlock(scenario)
+            openNavigation()
+            compose
+                .onNodeWithTag("workspace-navigation")
+                .performScrollToNode(hasText("Payments & deposits"))
+            compose
+                .onNode(
+                    hasText("Payments & deposits") and
+                        hasAnyAncestor(hasTestTag("workspace-navigation"))
+                )
+                .performClick()
+            compose.onNodeWithText("+ Add").performClick()
+            compose.onNodeWithText("Search Hire").performTextReplacement(registration.lowercase())
+            hideKeyboard(scenario)
+            compose.onNodeWithText("Hire: Choose").performClick()
+            compose
+                .onNode(hasText(registration, substring = true) and hasClickAction())
                 .assertTextContains("10:00", substring = true)
+                .performClick()
+            compose.onNodeWithText("Search Hire").performTextReplacement("no matching vehicle")
+            hideKeyboard(scenario)
+            compose
+                .onNode(hasText("Hire: $registration", substring = true) and hasClickAction())
+                .assertIsDisplayed()
+            compose.onNodeWithTag("record-editor").performScrollToNode(hasText("Amount (KES)"))
+            compose.onNodeWithText("Amount (KES)").performTextReplacement("1250")
+            hideKeyboard(scenario)
+            compose
+                .onNodeWithTag("record-editor")
+                .performScrollToNode(hasText("Business date (YYYY-MM-DD)"))
+            compose
+                .onNodeWithText("Business date (YYYY-MM-DD)")
+                .performTextReplacement("2026-12-03")
+            hideKeyboard(scenario)
+            compose
+                .onNodeWithContentDescription("Choose Business date (YYYY-MM-DD) date")
+                .performClick()
+            compose
+                .onNode(hasText("December 4", substring = true) and hasClickAction())
+                .performClick()
+            compose.onNodeWithText("Use date").performClick()
+            compose.onNodeWithText("Business date (YYYY-MM-DD)").assertTextContains("2026-12-04")
+            compose
+                .onNodeWithTag("record-editor")
+                .performScrollToNode(hasText("Save") and hasClickAction())
+            compose.onNodeWithText("Save").performClick()
+            compose.waitUntil(10000) {
+                compose.onAllNodesWithTag("record-editor").fetchSemanticsNodes().isEmpty()
+            }
+            val saved = runBlocking {
+                app.repository.dao.all().single {
+                    it.kind == "payments" && it.data().text("hireId") == hire
+                }
+            }
+            org.junit.Assert.assertEquals("2026-12-04", saved.data().text("date"))
+            org.junit.Assert.assertEquals("125000", saved.data().text("amountMinor"))
+        }
+    }
+
+    @Test
+    fun changingDeviceTimezoneRefreshesAnOpenEditorWithoutChangingTheStoredInstant() {
+        val app = ApplicationProvider.getApplicationContext<CarHireApp>()
+        Vault(app).setPin("527491")
+        val fixture = seedHireFixture(app)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            unlock(scenario)
+            openNavigation()
+            compose.onNodeWithTag("workspace-navigation").performScrollToNode(hasText("Hires"))
+            compose
+                .onNode(hasText("Hires") and hasAnyAncestor(hasTestTag("workspace-navigation")))
+                .performClick()
+            compose.onNodeWithText("Search records").performTextReplacement(fixture.vehicle)
+            hideKeyboard(scenario)
+            compose.onNodeWithText("Open").performScrollTo().assertIsDisplayed().performClick()
+            compose.waitUntil(10000) {
+                compose.onAllNodesWithTag("record-editor").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose
+                .onNodeWithTag("record-editor")
+                .performScrollToNode(hasTestTag("instant-plannedStart"))
+            compose.onNodeWithTag("instant-plannedStart").assertTextContains("2026-12-01T10:00")
+            scenario.moveToState(Lifecycle.State.CREATED)
+            TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"))
+            scenario.moveToState(Lifecycle.State.RESUMED)
+            compose.waitUntil(10000) {
+                compose
+                    .onNodeWithTag("instant-plannedStart")
+                    .fetchSemanticsNode()
+                    .config[SemanticsProperties.EditableText]
+                    .text == "2026-11-30T23:00"
+            }
+            compose
+                .onNodeWithTag("record-editor")
+                .performScrollToNode(hasText("Save") and hasClickAction())
+            compose.onNodeWithText("Save").performClick()
+            compose.waitUntil(10000) {
+                compose.onAllNodesWithTag("record-editor").fetchSemanticsNodes().isEmpty()
+            }
+            val saved = runBlocking { app.repository.dao.all().single { it.id == fixture.hire } }
+            org.junit.Assert.assertEquals("2026-12-01T07:00:00Z", saved.data().text("plannedStart"))
+        }
+    }
+
+    @Test
+    fun dashboardRegistrationSelectionFiltersResultsAndCanReturnToAllVehicles() {
+        val app = ApplicationProvider.getApplicationContext<CarHireApp>()
+        Vault(app).setPin("527491")
+        val first = seedHireFixture(app)
+        val second = seedHireFixture(app)
+        val today = LocalDate.now(ZoneId.of("Africa/Nairobi"))
+        val category = uuid()
+        runBlocking {
+            app.repository.save(
+                "categories",
+                category,
+                buildJsonObject { put("name", "Dashboard $category") },
+            )
+            listOf(first to 11100L, second to 22200L).forEach { (fixture, amount) ->
+                app.repository.save(
+                    "expenses",
+                    uuid(),
+                    buildJsonObject {
+                        put("vehicleId", fixture.vehicle)
+                        put("categoryId", category)
+                        put("name", "Dashboard fixture expense")
+                        put("date", today.toString())
+                        put("paidDate", today.toString())
+                        put("status", "Paid")
+                        put("amountMinor", amount)
+                    },
+                )
+            }
+        }
+        val total = runBlocking {
+            ke.carhire.domain.rules.Rules.financials(
+                    app.repository.dao.all(),
+                    today.withDayOfYear(1),
+                    today,
+                )
+                .getValue("cashExpensesMinor")
+        }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            unlock(scenario)
+            awaitDashboardAmount("cashExpensesMinor", total)
+            compose
+                .onNodeWithTag("dashboard-vehicle-search")
+                .performScrollTo()
+                .performTextReplacement(first.vehicle)
+            hideKeyboard(scenario)
+            compose
+                .onNodeWithText("No matching registrations. The report filter has not changed.")
+                .performScrollTo()
+                .assertIsDisplayed()
+            awaitDashboardAmount("cashExpensesMinor", total)
+            listOf(first to 11100L, second to 22200L).forEach { (fixture, expected) ->
+                val query =
+                    " ${fixture.registration.take(3).lowercase()} ${fixture.registration.drop(3).lowercase()} "
+                compose
+                    .onNodeWithTag("dashboard-vehicle-search")
+                    .performScrollTo()
+                    .performTextReplacement(query)
+                hideKeyboard(scenario)
+                compose
+                    .onNodeWithTag("dashboard-vehicle-${fixture.vehicle}")
+                    .performScrollTo()
+                    .performClick()
+                compose
+                    .onNodeWithTag("dashboard-selected-vehicle")
+                    .assertTextEquals("Report vehicle: ${fixture.registration}")
+                awaitDashboardAmount("cashExpensesMinor", expected)
+                compose
+                    .onNodeWithTag("dashboard-vehicle-search")
+                    .performScrollTo()
+                    .performTextReplacement("ZZZ no match")
+                hideKeyboard(scenario)
+                awaitDashboardAmount("cashExpensesMinor", expected)
+            }
+            compose.onNodeWithText("All vehicles").performScrollTo().performClick()
+            compose
+                .onNodeWithTag("dashboard-selected-vehicle")
+                .assertTextEquals("Report vehicle: All vehicles")
+            awaitDashboardAmount("cashExpensesMinor", total)
+        }
+    }
+
+    @Test
+    fun hireStatusFilterUsesDefinedChoicesAndCanBeCleared() {
+        val app = ApplicationProvider.getApplicationContext<CarHireApp>()
+        Vault(app).setPin("527491")
+        val marker = uuid()
+        val booked = seedHireFixture(app, "Booked", marker)
+        val draft = seedHireFixture(app, "Draft", marker)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            unlock(scenario)
+            openNavigation()
+            compose.onNodeWithTag("workspace-navigation").performScrollToNode(hasText("Hires"))
+            compose
+                .onNode(hasText("Hires") and hasAnyAncestor(hasTestTag("workspace-navigation")))
+                .performClick()
+            compose.onNodeWithText("Search records").performTextReplacement(marker)
+            hideKeyboard(scenario)
+            compose.onNodeWithTag("record-status-filter").performClick()
+            (listOf("All statuses") +
+                    Forms.fields.getValue("hires").single { it.key == "status" }.options)
+                .forEach { value ->
+                    compose.onNode(hasText(value) and hasClickAction()).assertExists()
+                }
+            compose.onNode(hasText("Booked") and hasClickAction()).performClick()
+            compose.onNodeWithTag("record-status-filter").assertTextContains("Status: Booked")
+            compose
+                .onNodeWithTag("record-list")
+                .performScrollToNode(hasTestTag("record-${booked.hire}"))
+            compose.onNodeWithTag("record-${booked.hire}").assertIsDisplayed()
+            compose.onNodeWithTag("record-${draft.hire}").assertDoesNotExist()
+            compose.onNodeWithTag("record-status-filter").performClick()
+            compose.onNode(hasText("Completed") and hasClickAction()).performClick()
+            compose
+                .onNodeWithText("No matching records. Add one or adjust filters.")
+                .assertIsDisplayed()
+            compose.onNodeWithTag("record-status-filter").performClick()
+            compose.onNode(hasText("All statuses") and hasClickAction()).performClick()
+            listOf(booked, draft).forEach { fixture ->
+                compose
+                    .onNodeWithTag("record-list")
+                    .performScrollToNode(hasTestTag("record-${fixture.hire}"))
+                compose.onNodeWithTag("record-${fixture.hire}").assertIsDisplayed()
+            }
         }
     }
 }

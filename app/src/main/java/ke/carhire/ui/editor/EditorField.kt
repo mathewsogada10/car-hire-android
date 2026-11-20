@@ -19,13 +19,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import ke.carhire.LocalRecord
-import ke.carhire.ui.components.title
+import ke.carhire.ui.components.DateField
 
 @Composable
-fun EditorField(f: Field, values: MutableMap<String, String>, all: List<LocalRecord>) {
+internal fun EditorField(
+    f: Field,
+    values: MutableMap<String, String>,
+    references: ReferenceChoices,
+) {
     val value = values[f.key].orEmpty()
     if (f.type == "instant") DateTimeField(f, value) { values[f.key] = it }
+    else if (f.type == "date")
+        DateField(
+            value,
+            { values[f.key] = it },
+            f.label + if (f.optional) " (optional)" else "",
+            Modifier.fillMaxWidth(),
+        )
     else if (f.type == "boolean")
         Row {
             Checkbox(value == "true", { values[f.key] = it.toString() })
@@ -35,14 +45,7 @@ fun EditorField(f: Field, values: MutableMap<String, String>, all: List<LocalRec
         var expanded by remember { mutableStateOf(false) }
         var search by remember { mutableStateOf("") }
         val choices =
-            if (f.reference.isNotEmpty())
-                all.filter {
-                        it.kind == f.reference &&
-                            it.deletedAt == null &&
-                            (search.isEmpty() || title(it).contains(search, true))
-                    }
-                    .take(100)
-                    .map { it.id to title(it) }
+            if (f.reference.isNotEmpty()) references.options(f.reference, search)
             else f.options.map { it to it }
         Column {
             if (f.reference.isNotEmpty())
@@ -54,7 +57,7 @@ fun EditorField(f: Field, values: MutableMap<String, String>, all: List<LocalRec
                 )
             OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    "${f.label}: ${choices.find { it.first == value }?.second ?: value.ifEmpty { "Choose" }}"
+                    "${f.label}: ${if (f.reference.isNotEmpty()) references.label(f.reference, value) ?: value.ifEmpty { "Choose" } else value.ifEmpty { "Choose" }}"
                 )
             }
             DropdownMenu(expanded, { expanded = false }) {

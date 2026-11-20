@@ -15,6 +15,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +32,8 @@ import ke.carhire.data.repository.Repository
 import ke.carhire.domain.model.SETTINGS_ID
 import ke.carhire.ui.components.AttachmentPanel
 import ke.carhire.ui.components.ErrorText
+import ke.carhire.ui.components.LocalDisplayTimeZone
+import ke.carhire.util.BusinessDateTime
 import ke.carhire.util.amount
 import ke.carhire.util.text
 import ke.carhire.util.uuid
@@ -46,6 +50,9 @@ fun RecordEditor(
     close: () -> Unit,
 ) {
     val fields = Forms.fields.getValue(kind)
+    val zone = LocalDisplayTimeZone.current
+    var entryZone by remember(row?.id, kind) { mutableStateOf(zone) }
+    val references = remember(all, entryZone) { ReferenceChoices(all, entryZone) }
     val values =
         remember(row?.id, kind) {
             mutableStateMapOf<String, String>().apply {
@@ -57,7 +64,7 @@ fun RecordEditor(
                             when (f.type) {
                                 "money" ->
                                     java.math.BigDecimal.valueOf(d.amount(f.key), 2).toPlainString()
-                                "instant" -> BusinessDateTime.toInput(d.text(f.key))
+                                "instant" -> BusinessDateTime.toInput(d.text(f.key), entryZone)
                                 else -> d.text(f.key)
                             }
                         } else f.options.firstOrNull() ?: if (f.type == "boolean") "false" else "",
@@ -75,85 +82,125 @@ fun RecordEditor(
             }
         }
     var error by remember { mutableStateOf("") }
+    LaunchedEffect(zone, values.toMap()) {
+        if (zone != entryZone) {
+            try {
+                val converted =
+                    fields
+                        .filter { it.type == "instant" && !values[it.key].isNullOrBlank() }
+                        .associate { field ->
+                            field.key to
+                                BusinessDateTime.toInput(
+                                    BusinessDateTime.toInstant(
+                                            values.getValue(field.key),
+                                            field.label,
+                                            entryZone,
+                                        )
+                                        .toString(),
+                                    zone,
+                                )
+                        }
+                converted.forEach { (key, value) -> values[key] = value }
+                entryZone = zone
+                if (error.startsWith("Timezone changed.")) error = ""
+            } catch (e: IllegalArgumentException) {
+                error =
+                    "Timezone changed. Correct the invalid date/time first; draft entries still use ${entryZone.id}. ${e.message}"
+            }
+        }
+    }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val id = remember(row?.id, kind) { row?.id ?: if (kind == "settings") SETTINGS_ID else uuid() }
     val context = androidx.compose.ui.platform.LocalContext.current
     val notificationPermission =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
-    LazyColumn(
-        Modifier.fillMaxSize().padding(16.dp).testTag("record-editor"),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        item {
-            Text(
-                if (row == null) "New ${Forms.titles[kind]}" else "Edit ${Forms.titles[kind]}",
-                style = MaterialTheme.typography.titleLarge,
-            )
-        }
-        if (row != null && kind != "settings") item { AttachmentPanel(row.id, repository) }
-        items(fields) { f -> EditorField(f, values, all) }
-        item {
-            ErrorText(error)
-            if (kind == "settings" && Build.VERSION.SDK_INT >= 33)
-                OutlinedButton(
-                    onClick = {
-                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    }
-                ) {
-                    Text("Grant notification permission")
-                }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    enabled = !busy,
-                    onClick = {
-                        busy = true
-                        scope.launch {
-                            try {
-                                val d = row?.data()?.toMutableMap() ?: mutableMapOf()
-                                fields.forEach { f ->
-                                    val v = values[f.key].orEmpty().trim()
-                                    if (v.isEmpty() && f.optional) d.remove(f.key)
-                                    else
-                                        d[f.key] =
-                                            when (f.type) {
-                                                "boolean" -> JsonPrimitive(v == "true")
-                                                "money" -> {
-                                                    require(
-                                                        v.matches(Regex("\\d{1,10}(\\.\\d{1,2})?"))
-                                                    ) {
-                                                        "${f.label}: use at most two decimal places"
-                                                    }
-                                                    JsonPrimitive(
-                                                        java.math
-                                                            .BigDecimal(v)
-                                                            .movePointRight(2)
-                                                            .longValueExact()
-                                                    )
-                                                }
-                                                "number" -> JsonPrimitive(v.toLong())
-                                                "instant" ->
-                                                    JsonPrimitive(
-                                                        BusinessDateTime.toInstant(v, f.label)
-                                                            .toString()
-                                                    )
-                                                else -> JsonPrimitive(v)
-                                            }
-                                }
-                                repository.save(kind, id, JsonObject(d), row?.updatedAt)
-                                ReminderWorker.schedule(context)
-                                close()
-                            } catch (e: Exception) {
-                                error = e.message ?: "Save failed; form retained"
-                            } finally {
-                                busy = false
-                            }
+    CompositionLocalProvider(LocalDisplayTimeZone provides entryZone) {
+        LazyColumn(
+            Modifier.fillMaxSize().padding(16.dp).testTag("record-editor"),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item {
+                Text(
+                    if (row == null) "New ${Forms.titles[kind]}" else "Edit ${Forms.titles[kind]}",
+                    style = MaterialTheme.typography.titleLarge,
+                )
+            }
+            if (row != null && kind != "settings") item { AttachmentPanel(row.id, repository) }
+            items(fields) { f -> EditorField(f, values, references) }
+            item {
+                ErrorText(error)
+                if (kind == "settings" && Build.VERSION.SDK_INT >= 33)
+                    OutlinedButton(
+                        onClick = {
+                            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                         }
-                    },
-                ) {
-                    Text(if (busy) "Saving..." else "Save")
+                    ) {
+                        Text("Grant notification permission")
+                    }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(
+                        enabled = !busy,
+                        onClick = {
+                            busy = true
+                            scope.launch {
+                                try {
+                                    val d = row?.data()?.toMutableMap() ?: mutableMapOf()
+                                    fields.forEach { f ->
+                                        val v = values[f.key].orEmpty().trim()
+                                        if (v.isEmpty() && f.optional) d.remove(f.key)
+                                        else
+                                            d[f.key] =
+                                                when (f.type) {
+                                                    "boolean" -> JsonPrimitive(v == "true")
+                                                    "money" -> {
+                                                        require(
+                                                            v.matches(
+                                                                Regex("\\d{1,10}(\\.\\d{1,2})?")
+                                                            )
+                                                        ) {
+                                                            "${f.label}: use at most two decimal places"
+                                                        }
+                                                        JsonPrimitive(
+                                                            java.math
+                                                                .BigDecimal(v)
+                                                                .movePointRight(2)
+                                                                .longValueExact()
+                                                        )
+                                                    }
+                                                    "number" -> JsonPrimitive(v.toLong())
+                                                    "date" ->
+                                                        JsonPrimitive(
+                                                            BusinessDateTime.date(v, f.label)
+                                                                .toString()
+                                                        )
+                                                    "instant" ->
+                                                        JsonPrimitive(
+                                                            BusinessDateTime.toInstant(
+                                                                    v,
+                                                                    f.label,
+                                                                    entryZone,
+                                                                )
+                                                                .toString()
+                                                        )
+                                                    else -> JsonPrimitive(v)
+                                                }
+                                    }
+                                    repository.save(kind, id, JsonObject(d), row?.updatedAt)
+                                    ReminderWorker.schedule(context)
+                                    close()
+                                } catch (e: Exception) {
+                                    error = e.message ?: "Save failed; form retained"
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        },
+                    ) {
+                        Text(if (busy) "Saving..." else "Save")
+                    }
+                    OutlinedButton(onClick = close, enabled = !busy) { Text("Cancel") }
                 }
-                OutlinedButton(onClick = close, enabled = !busy) { Text("Cancel") }
             }
         }
     }

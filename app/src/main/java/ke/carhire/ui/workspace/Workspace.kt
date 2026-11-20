@@ -21,6 +21,7 @@ import ke.carhire.data.local.AppearancePreferences
 import ke.carhire.data.repository.Repository
 import ke.carhire.domain.model.SETTINGS_ID
 import ke.carhire.ui.components.ErrorText
+import ke.carhire.ui.components.LocalDisplayTimeZone
 import ke.carhire.ui.components.title
 import ke.carhire.ui.editor.RecordEditor
 import ke.carhire.ui.screens.AuditScreen
@@ -33,6 +34,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun Workspace(repository: Repository, appearance: AppearancePreferences) {
+    val zone = LocalDisplayTimeZone.current
     val all by repository.records.collectAsStateWithLifecycle(initialValue = emptyList())
     var page by remember { mutableStateOf("home") }
     var editing by remember { mutableStateOf<LocalRecord?>(null) }
@@ -64,7 +66,7 @@ fun Workspace(repository: Repository, appearance: AppearancePreferences) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             ErrorText(error)
             WorkspaceHeader(page, openNavigation) { navigate("settings") }
-            val kind = if (page == "calendar") "hires" else page
+            val kind = page
             when {
                 creating || editing != null ->
                     RecordEditor(
@@ -88,7 +90,6 @@ fun Workspace(repository: Repository, appearance: AppearancePreferences) {
                     }
                 else ->
                     RecordListScreen(
-                        page,
                         kind,
                         all,
                         query,
@@ -113,7 +114,7 @@ fun Workspace(repository: Repository, appearance: AppearancePreferences) {
     deleting?.let { row ->
         AlertDialog(
             onDismissRequest = { deleting = null },
-            title = { Text("Delete ${title(row)}?") },
+            title = { Text("Delete ${title(row, zone)}?") },
             text = {
                 Text("This creates a tombstone; protected or referenced records cannot be deleted.")
             },

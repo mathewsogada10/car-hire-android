@@ -11,8 +11,10 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import ke.carhire.ui.components.ProvideDisplayTimeZone
 import ke.carhire.ui.lock.LockScreen
 import ke.carhire.ui.theme.CarHireTheme
+import ke.carhire.ui.theme.ThemedSystemBars
 import ke.carhire.ui.workspace.Workspace
 
 class MainActivity : FragmentActivity() {
@@ -23,22 +25,25 @@ class MainActivity : FragmentActivity() {
             val app = application as CarHireApp
             val theme by app.appearance.theme.collectAsStateWithLifecycle()
             val unlocked by app.session.unlocked.collectAsStateWithLifecycle()
-            CarHireTheme(theme) {
-                Surface(Modifier.fillMaxSize()) { Workspace(app.repository, app.appearance) }
-                if (!unlocked)
-                    Dialog(
-                        onDismissRequest = {},
-                        properties =
-                            DialogProperties(
-                                usePlatformDefaultWidth = false,
-                                dismissOnBackPress = false,
-                                dismissOnClickOutside = false,
-                            ),
-                    ) {
-                        Surface(Modifier.fillMaxSize()) {
-                            LockScreen(this@MainActivity, app.session::unlock)
+            ProvideDisplayTimeZone {
+                CarHireTheme(theme) {
+                    ThemedSystemBars(window)
+                    Surface(Modifier.fillMaxSize()) { Workspace(app.repository, app.appearance) }
+                    if (!unlocked)
+                        Dialog(
+                            onDismissRequest = {},
+                            properties =
+                                DialogProperties(
+                                    usePlatformDefaultWidth = false,
+                                    dismissOnBackPress = false,
+                                    dismissOnClickOutside = false,
+                                ),
+                        ) {
+                            Surface(Modifier.fillMaxSize()) {
+                                LockScreen(this@MainActivity, app.session::unlock)
+                            }
                         }
-                    }
+                }
             }
         }
     }
