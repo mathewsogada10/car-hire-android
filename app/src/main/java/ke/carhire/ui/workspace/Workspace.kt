@@ -29,6 +29,7 @@ import ke.carhire.ui.components.title
 import ke.carhire.ui.editor.RecordEditor
 import ke.carhire.ui.screens.AuditScreen
 import ke.carhire.ui.screens.DataScreen
+import ke.carhire.ui.screens.FinancialReportScreen
 import ke.carhire.ui.screens.Home
 import ke.carhire.ui.screens.SettingsScreen
 import ke.carhire.ui.screens.SyncScreen
@@ -80,6 +81,7 @@ fun Workspace(repository: Repository, appearance: AppearancePreferences) {
                             navigationOpen,
                         )
                     page == "home" -> Home(all)
+                    page == "financial" -> FinancialReportScreen(all)
                     page == "data" -> DataScreen(repository)
                     page == "sync" -> SyncScreen(repository, all)
                     page == "audit" -> AuditScreen(repository, all)

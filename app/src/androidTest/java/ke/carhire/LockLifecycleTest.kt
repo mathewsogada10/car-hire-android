@@ -160,6 +160,61 @@ class LockLifecycleTest {
     }
 
     @Test
+    fun financialYearChartRetainsDatesAndReturnsHomeWithBack() {
+        Vault(ApplicationProvider.getApplicationContext<Context>()).setPin("527491")
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            unlock(scenario)
+            openNavigation()
+            compose
+                .onNodeWithTag("workspace-navigation")
+                .performScrollToNode(hasText("Financial report"))
+            compose
+                .onNode(
+                    hasText("Financial report") and
+                        hasAnyAncestor(hasTestTag("workspace-navigation"))
+                )
+                .performClick()
+            compose.onNodeWithTag("workspace-page-title").assertTextEquals("Financial report")
+            compose
+                .onNode(hasText("From YYYY-MM-DD") and hasSetTextAction())
+                .performTextReplacement("2025-07-01")
+            compose
+                .onNode(hasText("Through YYYY-MM-DD") and hasSetTextAction())
+                .performTextReplacement("2026-06-30")
+            hideKeyboard(scenario)
+            compose
+                .onNodeWithTag("financial-report")
+                .performScrollToNode(
+                    hasContentDescription(
+                        "Monthly line graph for 2025-07 to 2026-06.",
+                        substring = true,
+                    )
+                )
+            compose.onNodeWithTag("financial-report").performScrollToNode(hasText("2026-06"))
+            compose.onNodeWithText("2026-06").assertIsDisplayed()
+            scenario.recreate()
+            compose.onNodeWithTag("workspace-page-title").assertTextEquals("Financial report")
+            compose
+                .onNodeWithTag("financial-report")
+                .performScrollToNode(hasText("From YYYY-MM-DD"))
+            compose
+                .onNode(hasText("From YYYY-MM-DD") and hasSetTextAction())
+                .assertTextContains("2025-07-01")
+            hideKeyboard(scenario)
+            compose.waitUntil(10000) {
+                var focused = false
+                scenario.onActivity { focused = it.hasWindowFocus() }
+                focused
+            }
+            shell("input keyevent 4")
+            compose.waitUntil(10000) {
+                compose.onAllNodesWithText("Fleet overview").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithText("Fleet overview").assertIsDisplayed()
+        }
+    }
+
+    @Test
     fun overflowSettingsAppliesAndPersistsLightAndDarkThemes() {
         val app = ApplicationProvider.getApplicationContext<CarHireApp>()
         val original = app.appearance.theme.value
