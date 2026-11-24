@@ -44,13 +44,12 @@ internal fun workspaceTitle(page: String): String =
 fun WorkspaceNavigation(
     page: String,
     onSelect: (String) -> Unit,
-    content: @Composable (openNavigation: () -> Unit) -> Unit,
+    content: @Composable (openNavigation: () -> Unit, navigationOpen: Boolean) -> Unit,
 ) {
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val expanded = drawer.isOpen || drawer.targetValue == DrawerValue.Open
     val close: () -> Unit = { scope.launch { drawer.close() } }
-    BackHandler(enabled = expanded, onBack = close)
     ModalNavigationDrawer(
         drawerState = drawer,
         gesturesEnabled = expanded,
@@ -111,6 +110,7 @@ fun WorkspaceNavigation(
             }
         },
     ) {
-        content { scope.launch { drawer.open() } }
+        content({ scope.launch { drawer.open() } }, expanded)
     }
+    BackHandler(enabled = expanded, onBack = close)
 }

@@ -2,6 +2,7 @@ package ke.carhire.ui.editor
 
 import android.Manifest
 import android.os.Build
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -22,10 +23,12 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import java.time.ZoneId
 import ke.carhire.LocalRecord
 import ke.carhire.ReminderWorker
 import ke.carhire.data.repository.Repository
@@ -48,13 +51,15 @@ fun RecordEditor(
     all: List<LocalRecord>,
     repository: Repository,
     close: () -> Unit,
+    navigationOpen: Boolean = false,
 ) {
     val fields = Forms.fields.getValue(kind)
     val zone = LocalDisplayTimeZone.current
-    var entryZone by remember(row?.id, kind) { mutableStateOf(zone) }
+    var entryZoneId by rememberSaveable(row?.id, kind) { mutableStateOf(zone.id) }
+    val entryZone = ZoneId.of(entryZoneId)
     val references = remember(all, entryZone) { ReferenceChoices(all, entryZone) }
     val values =
-        remember(row?.id, kind) {
+        rememberSaveable(row?.id, kind, saver = editorValuesSaver) {
             mutableStateMapOf<String, String>().apply {
                 fields.forEach { f ->
                     val d = row?.data()
@@ -101,7 +106,7 @@ fun RecordEditor(
                                 )
                         }
                 converted.forEach { (key, value) -> values[key] = value }
-                entryZone = zone
+                entryZoneId = zone.id
                 if (error.startsWith("Timezone changed.")) error = ""
             } catch (e: IllegalArgumentException) {
                 error =
@@ -110,6 +115,7 @@ fun RecordEditor(
         }
     }
     var busy by remember { mutableStateOf(false) }
+    BackHandler(enabled = !navigationOpen) { if (!busy) close() }
     val scope = rememberCoroutineScope()
     val id = remember(row?.id, kind) { row?.id ?: if (kind == "settings") SETTINGS_ID else uuid() }
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -127,7 +133,21 @@ fun RecordEditor(
                 )
             }
             if (row != null && kind != "settings") item { AttachmentPanel(row.id, repository) }
-            items(fields) { f -> EditorField(f, values, references) }
+            if (kind == "payments")
+                item {
+                    Text(
+                        "Saving fills missing actual hire pickup/return times from the planned times. Existing actual times and hire status are unchanged."
+                    )
+                }
+            items(fields) { f ->
+                EditorField(
+                    f,
+                    values,
+                    references,
+                    if (kind == "hires") hireFieldValue(values, f.key) else values[f.key].orEmpty(),
+                )
+                if (kind == "hires" && f.key == "plannedEnd") HireDaysField(values, entryZone)
+            }
             item {
                 ErrorText(error)
                 if (kind == "settings" && Build.VERSION.SDK_INT >= 33)
@@ -147,7 +167,10 @@ fun RecordEditor(
                                 try {
                                     val d = row?.data()?.toMutableMap() ?: mutableMapOf()
                                     fields.forEach { f ->
-                                        val v = values[f.key].orEmpty().trim()
+                                        val v =
+                                            (if (kind == "hires") hireFieldValue(values, f.key)
+                                                else values[f.key].orEmpty())
+                                                .trim()
                                         if (v.isEmpty() && f.optional) d.remove(f.key)
                                         else
                                             d[f.key] =

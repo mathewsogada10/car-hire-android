@@ -22,6 +22,16 @@ Kotlin / Jetpack Compose / Room daily owner application. Minimum Android API 24.
 | Optional sync | Atomic Room record + outbox write, ordered durable operations, HTTPS-only profile, replay-safe push and cursor pull, retryable network failures, permanent-error visibility, explicit server/local revision conflict resolution with reason, independently checkpointed private file transfer. |
 | Security/health | Six-to-twelve-digit rate-limited PIN, biometric convenience with PIN fallback, screen-capture protection, in-memory process-lifetime unlock, Keystore-encrypted credentials, last backup/sync/free-space/error/conflict information and local hash-only audit. |
 
+## Navigation and record summaries
+
+System Back first dismisses the drawer/dialog/keyboard, then closes the editor or returns through visited sections. Filters, scroll position and unsaved editor values are restored when returning, including activity recreation. Selecting Home resets the navigation history; only Back from Home leaves the app.
+
+Hire cards show registration, agreed charge, local planned pickup/return and `Days:X`. Payment cards show registration, amount and payment date. Hire choices show only the local start/end, registration and charge. Expense cards show paid date, falling back to business date when absent. Operational status is a single value; sync state belongs in **Sync & data health**, not a second status on the card.
+
+Hires, Payments and Expenses show a **Filtered total** computed from exactly the matching, non-deleted records. Hire totals use agreed charges; payments and expenses use entry amounts. Payment totals include refunds and failed/pending entries as displayed, so they are not net cash or balance due. The total is not stored in the database.
+
+The hire editor shows a read-only **Number of days** from planned elapsed time, rounding a partial 24-hour day up; this does not change the agreed charge or revenue recognition. Blank actual pickup/return fields default to their corresponding planned values, without replacing an explicit actual time. Saving a payment also fills missing actual times on its linked hire in the same Room/outbox transaction, without changing its status. The server applies the same atomic rule for web payments.
+
 ## Build and install
 
 Requirements: JDK 21 (source/bytecode target 17), Android SDK platform/build tools 35, accepted Android SDK licenses. Set `ANDROID_HOME` to your SDK. The first wrapper run needs network access.
@@ -39,7 +49,7 @@ Unlock once per running application process. Switching to another app, returning
 
 On Home, type all or part of a registration in **Search vehicle registration**, then tap a matching vehicle to apply the report filter. Search ignores case and spaces; it does not search UUIDs, makes or models. Results show the registration, make/model and a short ID for disambiguation. Up to five matches are shown with a refinement hint if more match. **Report vehicle** always names the applied filter: typing an unmatched query does not silently change it. **All vehicles** clears both the filter and search. Date filters apply together with the selected vehicle; report calculations continue to use its UUID internally.
 
-All editable date fields, including report/list filters and the purge cutoff, accept **YYYY-MM-DD** and have a calendar button. Date-time fields accept **YYYY-MM-DDTHH:mm** in the timezone shown beneath the field, or use the calendar button, **Next: time**, and **Use date and time**. Invalid dates remain visible with a field-specific error instead of being silently replaced. Optional actual timestamps can be left empty or cleared. If a daylight-saving transition repeats a local time, include its UTC offset (for example `2026-11-01T01:30-04:00`); nonexistent local times are rejected.
+All editable date fields, including report/list filters and the purge cutoff, accept **YYYY-MM-DD** and have a calendar button. Date-time fields accept **YYYY-MM-DDTHH:mm** in the timezone shown beneath the field, or use the calendar button, **Next: time**, and **Use date and time**. Invalid dates remain visible with a field-specific error instead of being silently replaced. Clearing an actual timestamp restores its planned default. If a daylight-saving transition repeats a local time, include its UTC offset (for example `2026-11-01T01:30-04:00`); nonexistent local times are rejected. Local display times omit the redundant GMT suffix; the editor/settings still identify the entry timezone.
 
 Timestamp presentation follows the device timezone, including hire references/cards, editor values, audit/conflict details, export history and sync/backup status. Device timezone changes refresh the display; valid date-time drafts are converted without changing their instant. An invalid draft remains explicitly labelled with its previous timezone until corrected. Stored/synced/exported timestamps remain UTC. Date-only business dates do not shift, and Nairobi-based financial recognition and configured daily reminder scheduling retain their business-timezone semantics.
 

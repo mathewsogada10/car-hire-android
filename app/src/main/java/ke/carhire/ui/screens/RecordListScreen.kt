@@ -12,6 +12,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -20,8 +21,11 @@ import ke.carhire.ui.components.DateField
 import ke.carhire.ui.components.ErrorText
 import ke.carhire.ui.components.LocalDisplayTimeZone
 import ke.carhire.ui.components.RecordCard
+import ke.carhire.ui.components.RecordSummaries
 import ke.carhire.ui.components.StatusFilter
 import ke.carhire.ui.components.filterRecords
+import ke.carhire.ui.components.filteredAmountTotal
+import ke.carhire.ui.components.money
 import ke.carhire.ui.editor.Forms
 
 @Composable
@@ -42,6 +46,7 @@ fun ColumnScope.RecordListScreen(
     onDelete: (LocalRecord) -> Unit,
 ) {
     val zone = LocalDisplayTimeZone.current
+    val summaries = remember(all, zone) { RecordSummaries(all, zone) }
     Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(Forms.titles[kind].orEmpty(), style = MaterialTheme.typography.titleLarge)
         Button(onClick = onAdd) { Text(if (kind == "settings") "Configure" else "+ Add") }
@@ -72,11 +77,24 @@ fun ColumnScope.RecordListScreen(
         }
     ErrorText(error)
     val filtered = filterRecords(all, kind, query, status, from, to, zone)
+    if (kind in listOf("hires", "payments", "expenses")) {
+        val total = filteredAmountTotal(kind, filtered)
+        Text(
+            "Filtered total: ${money(total)} (${filtered.size} matching records)",
+            Modifier.padding(horizontal = 16.dp).testTag("filtered-total"),
+        )
+        if (kind == "payments")
+            Text(
+                "Sum of entry amounts, not net cash or balance due.",
+                Modifier.padding(horizontal = 16.dp),
+                style = MaterialTheme.typography.bodySmall,
+            )
+    }
     LazyColumn(
         Modifier.weight(1f).padding(16.dp).testTag("record-list"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (filtered.isEmpty()) item { Text("No matching records. Add one or adjust filters.") }
-        items(filtered, key = { it.id }) { row -> RecordCard(row, onEdit, onDelete) }
+        items(filtered, key = { it.id }) { row -> RecordCard(row, summaries, onEdit, onDelete) }
     }
 }

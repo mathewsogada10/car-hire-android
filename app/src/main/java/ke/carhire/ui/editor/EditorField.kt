@@ -26,8 +26,8 @@ internal fun EditorField(
     f: Field,
     values: MutableMap<String, String>,
     references: ReferenceChoices,
+    value: String = values[f.key].orEmpty(),
 ) {
-    val value = values[f.key].orEmpty()
     if (f.type == "instant") DateTimeField(f, value) { values[f.key] = it }
     else if (f.type == "date")
         DateField(

@@ -13,6 +13,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -33,9 +34,11 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun Home(all: List<LocalRecord>) {
-    var from by remember { mutableStateOf("${LocalDate.now().year}-01-01") }
-    var to by remember { mutableStateOf(LocalDate.now(ZoneId.of("Africa/Nairobi")).toString()) }
-    var vehicle by remember { mutableStateOf("") }
+    var from by rememberSaveable { mutableStateOf("${LocalDate.now().year}-01-01") }
+    var to by rememberSaveable {
+        mutableStateOf(LocalDate.now(ZoneId.of("Africa/Nairobi")).toString())
+    }
+    var vehicle by rememberSaveable { mutableStateOf("") }
     val vehicles = remember(all) { VehicleChoices(all) }
     var calculation by remember { mutableStateOf<Result<Map<String, Long>>?>(null) }
     LaunchedEffect(all, from, to, vehicle) {

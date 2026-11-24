@@ -1,5 +1,6 @@
 package ke.carhire.ui.workspace
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -13,6 +14,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -27,7 +30,6 @@ import ke.carhire.ui.editor.RecordEditor
 import ke.carhire.ui.screens.AuditScreen
 import ke.carhire.ui.screens.DataScreen
 import ke.carhire.ui.screens.Home
-import ke.carhire.ui.screens.RecordListScreen
 import ke.carhire.ui.screens.SettingsScreen
 import ke.carhire.ui.screens.SyncScreen
 import kotlinx.coroutines.launch
@@ -36,25 +38,18 @@ import kotlinx.coroutines.launch
 fun Workspace(repository: Repository, appearance: AppearancePreferences) {
     val zone = LocalDisplayTimeZone.current
     val all by repository.records.collectAsStateWithLifecycle(initialValue = emptyList())
-    var page by remember { mutableStateOf("home") }
-    var editing by remember { mutableStateOf<LocalRecord?>(null) }
-    var creating by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
-    var status by remember { mutableStateOf("") }
-    var from by remember { mutableStateOf("") }
-    var to by remember { mutableStateOf("") }
+    val history = rememberSaveable(saver = WorkspaceHistory.saver) { WorkspaceHistory() }
+    val stateHolder = rememberSaveableStateHolder()
+    val entry = history.current
+    val page = entry.page
     val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf("") }
     var deleting by remember { mutableStateOf<LocalRecord?>(null) }
-    fun navigate(key: String) {
-        page = key
-        editing = null
-        creating = false
-        query = ""
-        status = ""
-        from = ""
-        to = ""
+    fun close(key: String = entry.key) {
+        stateHolder.removeState(key)
+        history.close(key)
     }
+    BackHandler(enabled = page != "home" || entry.editor) { close() }
     LaunchedEffect(repository) {
         try {
             repository.seedCategories()
@@ -62,52 +57,46 @@ fun Workspace(repository: Repository, appearance: AppearancePreferences) {
             error = e.message ?: "Unable to initialize expense categories"
         }
     }
-    WorkspaceNavigation(page, ::navigate) { openNavigation ->
+    WorkspaceNavigation(
+        page,
+        { target ->
+            if (target == "home") history.entries.forEach { stateHolder.removeState(it.key) }
+            history.navigate(target)
+        },
+    ) { openNavigation, navigationOpen ->
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             ErrorText(error)
-            WorkspaceHeader(page, openNavigation) { navigate("settings") }
+            WorkspaceHeader(page, openNavigation) { history.navigate("settings") }
             val kind = page
-            when {
-                creating || editing != null ->
-                    RecordEditor(
-                        kind,
-                        editing,
-                        all,
-                        repository,
-                        {
-                            creating = false
-                            editing = null
-                        },
-                    )
-                page == "home" -> Home(all)
-                page == "data" -> DataScreen(repository)
-                page == "sync" -> SyncScreen(repository, all)
-                page == "audit" -> AuditScreen(repository, all)
-                page == "settings" ->
-                    SettingsScreen(appearance) {
-                        editing = all.find { it.id == SETTINGS_ID }
-                        creating = editing == null
-                    }
-                else ->
-                    RecordListScreen(
-                        kind,
-                        all,
-                        query,
-                        { query = it },
-                        status,
-                        { status = it },
-                        from,
-                        { from = it },
-                        to,
-                        { to = it },
-                        error,
-                        onAdd = {
-                            if (kind == "settings") editing = all.find { it.id == SETTINGS_ID }
-                            creating = editing == null
-                        },
-                        onEdit = { editing = it },
-                        onDelete = { deleting = it },
-                    )
+            stateHolder.SaveableStateProvider(entry.key) {
+                when {
+                    entry.editor ->
+                        RecordEditor(
+                            kind,
+                            entry.row,
+                            all,
+                            repository,
+                            { close(entry.key) },
+                            navigationOpen,
+                        )
+                    page == "home" -> Home(all)
+                    page == "data" -> DataScreen(repository)
+                    page == "sync" -> SyncScreen(repository, all)
+                    page == "audit" -> AuditScreen(repository, all)
+                    page == "settings" ->
+                        SettingsScreen(appearance) {
+                            history.edit(all.find { it.id == SETTINGS_ID })
+                        }
+                    else ->
+                        WorkspaceRecords(
+                            kind,
+                            all,
+                            error,
+                            onAdd = { history.edit() },
+                            onEdit = { history.edit(it) },
+                            onDelete = { deleting = it },
+                        )
+                }
             }
         }
     }

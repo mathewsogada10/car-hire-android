@@ -13,22 +13,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import ke.carhire.LocalRecord
-import ke.carhire.util.BusinessDateTime
-import ke.carhire.util.amount
-import ke.carhire.util.text
 
 @Composable
-fun RecordCard(row: LocalRecord, onEdit: (LocalRecord) -> Unit, onDelete: (LocalRecord) -> Unit) {
-    val zone = LocalDisplayTimeZone.current
+internal fun RecordCard(
+    row: LocalRecord,
+    summaries: RecordSummaries,
+    onEdit: (LocalRecord) -> Unit,
+    onDelete: (LocalRecord) -> Unit,
+) {
+    val summary = summaries.summary(row)
     Card(Modifier.fillMaxWidth().testTag("record-${row.id}")) {
         Column(Modifier.padding(16.dp)) {
-            Text(title(row, zone), style = MaterialTheme.typography.titleMedium)
-            Text("${row.data().text("status")} | ${row.syncState}")
-            if (row.data().containsKey("amountMinor")) Text(money(row.data().amount("amountMinor")))
-            if (row.kind == "hires")
-                Text(
-                    "${BusinessDateTime.display(row.data().text("plannedStart"), zone)} -> ${BusinessDateTime.display(row.data().text("plannedEnd"), zone)}"
-                )
+            Text(summary.heading, style = MaterialTheme.typography.titleMedium)
+            summary.lines.forEach { Text(it) }
             Row {
                 TextButton(onClick = { onEdit(row) }) { Text("Open") }
                 TextButton(onClick = { onDelete(row) }) { Text("Delete") }

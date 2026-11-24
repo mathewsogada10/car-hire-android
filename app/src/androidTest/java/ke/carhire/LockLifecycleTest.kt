@@ -92,7 +92,7 @@ class LockLifecycleTest {
 
     private fun openSettings() {
         compose.onNodeWithContentDescription("More options").performClick()
-        compose.onNodeWithText("Settings").performClick()
+        compose.onNode(hasText("Settings") and hasClickAction()).performClick()
         compose.onNodeWithText("Appearance").assertIsDisplayed()
     }
 
@@ -311,8 +311,14 @@ class LockLifecycleTest {
             }
             org.junit.Assert.assertTrue(saved.data().text("plannedStart").endsWith("T07:30:00Z"))
             org.junit.Assert.assertTrue(saved.data().text("plannedEnd").endsWith("T09:00:00Z"))
-            org.junit.Assert.assertFalse(saved.data().containsKey("actualStart"))
-            org.junit.Assert.assertFalse(saved.data().containsKey("actualEnd"))
+            org.junit.Assert.assertEquals(
+                saved.data().text("plannedStart"),
+                saved.data().text("actualStart"),
+            )
+            org.junit.Assert.assertEquals(
+                saved.data().text("plannedEnd"),
+                saved.data().text("actualEnd"),
+            )
             compose.onNodeWithText("Search records").performTextReplacement(vehicle)
             hideKeyboard(scenario)
             compose.onNodeWithText("Open").performScrollTo().assertIsDisplayed().performClick()
@@ -405,7 +411,11 @@ class LockLifecycleTest {
             compose.onNodeWithText("Search Hire").performTextReplacement("no matching vehicle")
             hideKeyboard(scenario)
             compose
-                .onNode(hasText("Hire: $registration", substring = true) and hasClickAction())
+                .onNode(
+                    hasText("Hire: ", substring = true) and
+                        hasText(registration, substring = true) and
+                        hasClickAction()
+                )
                 .assertIsDisplayed()
             compose.onNodeWithTag("record-editor").performScrollToNode(hasText("Amount (KES)"))
             compose.onNodeWithText("Amount (KES)").performTextReplacement("1250")
@@ -439,6 +449,15 @@ class LockLifecycleTest {
             }
             org.junit.Assert.assertEquals("2026-12-04", saved.data().text("date"))
             org.junit.Assert.assertEquals("125000", saved.data().text("amountMinor"))
+            val updatedHire = runBlocking { requireNotNull(app.repository.dao.find(hire)) }.data()
+            org.junit.Assert.assertEquals(
+                updatedHire.text("plannedStart"),
+                updatedHire.text("actualStart"),
+            )
+            org.junit.Assert.assertEquals(
+                updatedHire.text("plannedEnd"),
+                updatedHire.text("actualEnd"),
+            )
         }
     }
 
@@ -569,6 +588,71 @@ class LockLifecycleTest {
     }
 
     @Test
+    fun systemBackRestoresSectionsFiltersAndDraftsBeforeLeavingHome() {
+        Vault(ApplicationProvider.getApplicationContext<Context>()).setPin("527491")
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            unlock(scenario)
+            fun navigate(section: String) {
+                openNavigation()
+                compose.onNodeWithTag("workspace-navigation").performScrollToNode(hasText(section))
+                compose
+                    .onNode(hasText(section) and hasAnyAncestor(hasTestTag("workspace-navigation")))
+                    .performClick()
+                compose.onNodeWithTag("workspace-page-title").assertTextEquals(section)
+            }
+            fun back() {
+                compose.waitForIdle()
+                shell("input keyevent 4")
+                compose.waitForIdle()
+            }
+            navigate("Customers")
+            compose
+                .onNodeWithText("Search records")
+                .performTextReplacement("retained customer filter")
+            hideKeyboard(scenario)
+            navigate("Hires")
+            compose.onNodeWithText("+ Add").performClick()
+            compose
+                .onNodeWithTag("record-editor")
+                .performScrollToNode(hasTestTag("instant-plannedStart"))
+            compose.onNodeWithTag("instant-plannedStart").performTextReplacement("2026-12-01T10:00")
+            compose
+                .onNodeWithTag("record-editor")
+                .performScrollToNode(hasTestTag("instant-plannedEnd"))
+            compose.onNodeWithTag("instant-plannedEnd").performTextReplacement("2026-12-02T12:00")
+            hideKeyboard(scenario)
+            compose.onNodeWithTag("hire-days").performScrollTo().assertTextContains("2")
+            openNavigation()
+            back()
+            compose.onNodeWithContentDescription("Close navigation menu").assertDoesNotExist()
+            compose.onNodeWithTag("record-editor").assertExists()
+            navigate("Expenses")
+            back()
+            compose.onNodeWithTag("record-editor").assertExists()
+            compose
+                .onNodeWithTag("record-editor")
+                .performScrollToNode(hasTestTag("instant-plannedStart"))
+            compose.onNodeWithTag("instant-plannedStart").assertTextContains("2026-12-01T10:00")
+            scenario.recreate()
+            compose
+                .onNodeWithTag("record-editor")
+                .performScrollToNode(hasTestTag("instant-plannedEnd"))
+            compose.onNodeWithTag("instant-plannedEnd").assertTextContains("2026-12-02T12:00")
+            hideKeyboard(scenario)
+            back()
+            compose.onNodeWithTag("workspace-page-title").assertTextEquals("Hires")
+            back()
+            compose.onNodeWithTag("workspace-page-title").assertTextEquals("Customers")
+            compose.onNodeWithText("Search records").assertTextContains("retained customer filter")
+            back()
+            compose.onNodeWithText("Fleet overview").assertIsDisplayed()
+            org.junit.Assert.assertEquals(Lifecycle.State.RESUMED, scenario.state)
+            back()
+            compose.waitUntil(10000) { scenario.state != Lifecycle.State.RESUMED }
+        }
+    }
+
+    @Test
     fun hireStatusFilterUsesDefinedChoicesAndCanBeCleared() {
         val app = ApplicationProvider.getApplicationContext<CarHireApp>()
         Vault(app).setPin("527491")
@@ -596,14 +680,21 @@ class LockLifecycleTest {
                 .onNodeWithTag("record-list")
                 .performScrollToNode(hasTestTag("record-${booked.hire}"))
             compose.onNodeWithTag("record-${booked.hire}").assertIsDisplayed()
+            compose
+                .onNodeWithTag("filtered-total")
+                .assertTextContains("KES 2,500.00", substring = true)
             compose.onNodeWithTag("record-${draft.hire}").assertDoesNotExist()
             compose.onNodeWithTag("record-status-filter").performClick()
             compose.onNode(hasText("Completed") and hasClickAction()).performClick()
             compose
                 .onNodeWithText("No matching records. Add one or adjust filters.")
                 .assertIsDisplayed()
+            compose.onNodeWithTag("filtered-total").assertTextContains("KES 0.00", substring = true)
             compose.onNodeWithTag("record-status-filter").performClick()
             compose.onNode(hasText("All statuses") and hasClickAction()).performClick()
+            compose
+                .onNodeWithTag("filtered-total")
+                .assertTextContains("KES 5,000.00", substring = true)
             listOf(booked, draft).forEach { fixture ->
                 compose
                     .onNodeWithTag("record-list")

@@ -6,6 +6,7 @@ import ke.carhire.Evidence
 import ke.carhire.LocalRecord
 import ke.carhire.Meta
 import ke.carhire.Operation
+import ke.carhire.domain.rules.HireTiming
 import ke.carhire.domain.rules.Rules
 import ke.carhire.security.Crypto
 import ke.carhire.sync.SyncGate
@@ -64,7 +65,7 @@ class Repository(val db: CarDatabase) {
         data: JsonObject,
         expectedUpdatedAt: String? = null,
         deleted: Boolean = false,
-    ) =
+    ): Unit =
         db.withTransaction {
             val old = dao.find(id)
             require(old?.deletedAt == null) { "Deleted records cannot be resurrected" }
@@ -78,6 +79,14 @@ class Repository(val db: CarDatabase) {
                     Rules.deletion(old, all)
                     old.data()
                 } else Rules.validate(kind, id, data, old, all)
+            if (kind == "payments" && !deleted) {
+                val hire =
+                    requireNotNull(
+                        all.find { it.kind == "hires" && it.id == validated.text("hireId") }
+                    )
+                val defaults = HireTiming.defaults(hire.data())
+                if (defaults != hire.data()) save("hires", hire.id, defaults, hire.updatedAt)
+            }
             val row =
                 LocalRecord(
                     id,
