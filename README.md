@@ -57,6 +57,8 @@ Open the **top-left hamburger menu** to browse all sections; scroll vertically f
 
 ## Storage, sync and recovery
 
+Financial chart checkboxes independently show/hide received payments, paid expenses and net profit. All lines start checked; any pair, any single line or none can be selected. The axis uses only visible lines. Selections survive filter changes, scrolling and activity recreation. Hiding every line shows a prompt without hiding the exact monthly amounts.
+
 **Menu > Financial report** shows monthly lines for received payments less refunds, paid expenses, and net profit (cash basis: payments minus expenses), with exact monthly amounts below the graph. Choose any date range, including a financial year spanning two calendar years, and optionally a vehicle. Empty months show zero, first/last months use only selected dates, and losses appear below zero. Expenses use paid date, falling back to business date. Deposits, deposit applications/refunds, pending/failed payments, unpaid/cancelled expenses and deleted records are excluded. The report works offline from Room, retains its filters during navigation, and supports up to 1200 months. Purged/unsynced local history can differ from the backend. No schema migration is required.
 
 Room is the UI's source of truth. Network results are committed to Room before they become visible. An operation is only acknowledged locally after a transaction commits. Interrupted pushes retain the original operation ID and payload. Parent writes precede child writes. Conflicts preserve the server version in local evidence; keeping a local version revalidates the booking/financial rules and creates a new revision. Received financial entries require compensation, not silent rewriting.

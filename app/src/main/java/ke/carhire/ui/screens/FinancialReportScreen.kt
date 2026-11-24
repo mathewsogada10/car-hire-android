@@ -30,6 +30,11 @@ fun FinancialReportScreen(all: List<LocalRecord>) {
     var from by rememberSaveable { mutableStateOf("${today.year}-01-01") }
     var to by rememberSaveable { mutableStateOf(today.toString()) }
     var vehicle by rememberSaveable { mutableStateOf("") }
+    var selectedSeriesNames by rememberSaveable {
+        mutableStateOf(FinancialChartSeries.entries.map { it.name })
+    }
+    val selectedSeries =
+        FinancialChartSeries.entries.filter { it.name in selectedSeriesNames }.toSet()
     val vehicles = remember(all) { VehicleChoices(all) }
     var calculation by remember { mutableStateOf<Result<List<FinancialMonth>>?>(null) }
     LaunchedEffect(all, from, to, vehicle) {
@@ -70,7 +75,11 @@ fun FinancialReportScreen(all: List<LocalRecord>) {
             }
         }
         calculation?.getOrNull()?.let { months ->
-            item { FinancialLineChart(months) }
+            item {
+                FinancialLineChart(months, selectedSeries) { selected ->
+                    selectedSeriesNames = selected.map { it.name }
+                }
+            }
             item { Text("Monthly amounts (KES)", style = MaterialTheme.typography.titleLarge) }
             items(months, key = { it.month.toString() }) { month ->
                 Card(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {

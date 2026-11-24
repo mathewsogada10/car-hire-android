@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -27,7 +28,11 @@ import kotlin.math.abs
 import kotlin.math.ceil
 
 @Composable
-fun FinancialLineChart(months: List<FinancialMonth>) {
+fun FinancialLineChart(
+    months: List<FinancialMonth>,
+    selectedSeries: Set<FinancialChartSeries>,
+    onSelectedSeriesChange: (Set<FinancialChartSeries>) -> Unit,
+) {
     if (months.isEmpty()) return
     val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
     val colors =
@@ -35,28 +40,22 @@ fun FinancialLineChart(months: List<FinancialMonth>) {
         else listOf(Color(0xFF2563EB), Color(0xFFC2410C), Color(0xFF15803D))
     val textColor = MaterialTheme.colorScheme.onSurface
     val grid = MaterialTheme.colorScheme.outlineVariant
-    val series =
-        listOf(
-            months.map { it.paymentsReceivedMinor },
-            months.map { it.expensesPaidMinor },
-            months.map { it.netProfitMinor },
-        )
-    val low = minOf(0L, series.flatten().min()).toDouble()
-    val high = maxOf(0L, series.flatten().max()).toDouble().let { if (it == low) it + 100 else it }
+    val series = FinancialChartSeries.entries.filter { it in selectedSeries }
     Column {
-        listOf(
-                "Payments received, net refunds (solid)",
-                "Paid expenses (dashed)",
-                "Net profit, cash basis (dotted)",
-            )
-            .forEachIndexed { index, title ->
-                Text(title, color = colors[index], style = MaterialTheme.typography.labelMedium)
-            }
+        FinancialChartLegend(selectedSeries, onSelectedSeriesChange, colors)
+        if (series.isEmpty()) {
+            Text("Select at least one line to display the chart.")
+            return@Column
+        }
+        val values = series.associateWith { key -> months.map(key::amount) }
+        val amounts = values.values.flatten()
+        val low = minOf(0L, amounts.min()).toDouble()
+        val high = maxOf(0L, amounts.max()).toDouble().let { if (it == low) it + 100 else it }
         Text("Amount (KES)", style = MaterialTheme.typography.labelSmall)
         Canvas(
-            Modifier.fillMaxWidth().height(260.dp).semantics {
+            Modifier.fillMaxWidth().height(260.dp).testTag("financial-line-chart").semantics {
                 contentDescription =
-                    "Monthly line graph for ${months.first().month} to ${months.last().month}. Exact amounts are listed below."
+                    "Monthly line graph for ${months.first().month} to ${months.last().month}. Visible lines: ${series.joinToString("; ") { it.label }}. Exact amounts are listed below."
             }
         ) {
             val left = 56.dp.toPx()
@@ -94,9 +93,10 @@ fun FinancialLineChart(months: List<FinancialMonth>) {
                 )
             }
             drawLine(textColor.copy(alpha = 0.5f), Offset(left, y(0.0)), Offset(right, y(0.0)))
-            series.forEachIndexed { index, values ->
+            values.forEach { (key, amounts) ->
+                val index = key.ordinal
                 val path = Path()
-                values.forEachIndexed { point, amount ->
+                amounts.forEachIndexed { point, amount ->
                     val position = Offset(x(point), y(amount.toDouble()))
                     if (point == 0) path.moveTo(position.x, position.y)
                     else path.lineTo(position.x, position.y)

@@ -96,6 +96,15 @@ class LockLifecycleTest {
         compose.onNodeWithText("Appearance").assertIsDisplayed()
     }
 
+    private fun awaitFinancialCalculation() {
+        compose.waitUntil(10000) {
+            compose
+                .onAllNodesWithText("Calculating monthly trend...")
+                .fetchSemanticsNodes()
+                .isEmpty()
+        }
+    }
+
     private fun openNavigation() {
         compose.onNodeWithContentDescription("Open navigation menu").performClick()
         compose.waitUntil(10000) {
@@ -190,16 +199,92 @@ class LockLifecycleTest {
                         substring = true,
                     )
                 )
-            compose.onNodeWithTag("financial-report").performScrollToNode(hasText("2026-06"))
-            compose.onNodeWithText("2026-06").assertIsDisplayed()
-            scenario.recreate()
-            compose.onNodeWithTag("workspace-page-title").assertTextEquals("Financial report")
+            val labels =
+                listOf(
+                    "Payments received, net refunds (solid)",
+                    "Paid expenses (dashed)",
+                    "Net profit, cash basis (dotted)",
+                )
+            var currentMask = 7
+            for (mask in listOf(3, 5, 6, 1, 2, 4, 0, 1)) {
+                labels.forEachIndexed { index, label ->
+                    val checked = mask and (1 shl index) != 0
+                    compose
+                        .onNodeWithTag("financial-report")
+                        .performScrollToNode(hasText(label) and isToggleable())
+                    val checkbox = compose.onNode(hasText(label) and isToggleable())
+                    if ((currentMask xor mask) and (1 shl index) != 0) checkbox.performClick()
+                    if (checked) checkbox.assertIsOn() else checkbox.assertIsOff()
+                }
+                currentMask = mask
+                if (mask == 0) {
+                    compose.onNodeWithTag("financial-line-chart").assertDoesNotExist()
+                    compose
+                        .onNodeWithTag("financial-report")
+                        .performScrollToNode(
+                            hasText("Select at least one line to display the chart.")
+                        )
+                    compose
+                        .onNodeWithText("Select at least one line to display the chart.")
+                        .assertIsDisplayed()
+                    compose
+                        .onNodeWithTag("financial-report")
+                        .performScrollToNode(hasText("2026-06"))
+                    compose.onNodeWithText("2026-06").assertIsDisplayed()
+                } else {
+                    compose
+                        .onNodeWithTag("financial-report")
+                        .performScrollToNode(hasTestTag("financial-line-chart"))
+                    val visible = labels.filterIndexed { index, _ -> mask and (1 shl index) != 0 }
+                    compose
+                        .onNodeWithTag("financial-line-chart")
+                        .assert(
+                            hasContentDescription(
+                                "Visible lines: ${visible.joinToString("; ")}.",
+                                substring = true,
+                            )
+                        )
+                }
+            }
             compose
                 .onNodeWithTag("financial-report")
                 .performScrollToNode(hasText("From YYYY-MM-DD"))
             compose
                 .onNode(hasText("From YYYY-MM-DD") and hasSetTextAction())
-                .assertTextContains("2025-07-01")
+                .performTextReplacement("2025-08-01")
+            hideKeyboard(scenario)
+            awaitFinancialCalculation()
+            compose
+                .onNodeWithTag("financial-report")
+                .performScrollToNode(
+                    hasContentDescription(
+                        "Monthly line graph for 2025-08 to 2026-06.",
+                        substring = true,
+                    )
+                )
+            compose
+                .onNodeWithTag("financial-line-chart")
+                .assert(
+                    hasContentDescription("Visible lines: ${labels.first()}.", substring = true)
+                )
+            compose.onNodeWithTag("financial-report").performScrollToNode(hasText("2026-06"))
+            compose.onNodeWithText("2026-06").assertIsDisplayed()
+            scenario.recreate()
+            compose.onNodeWithTag("workspace-page-title").assertTextEquals("Financial report")
+            awaitFinancialCalculation()
+            labels.forEachIndexed { index, label ->
+                compose
+                    .onNodeWithTag("financial-report")
+                    .performScrollToNode(hasText(label) and isToggleable())
+                val checkbox = compose.onNode(hasText(label) and isToggleable())
+                if (index == 0) checkbox.assertIsOn() else checkbox.assertIsOff()
+            }
+            compose
+                .onNodeWithTag("financial-report")
+                .performScrollToNode(hasText("From YYYY-MM-DD"))
+            compose
+                .onNode(hasText("From YYYY-MM-DD") and hasSetTextAction())
+                .assertTextContains("2025-08-01")
             hideKeyboard(scenario)
             compose.waitUntil(10000) {
                 var focused = false
