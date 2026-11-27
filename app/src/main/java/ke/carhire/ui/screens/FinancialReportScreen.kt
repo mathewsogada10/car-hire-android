@@ -17,12 +17,8 @@ import androidx.compose.ui.unit.dp
 import java.time.LocalDate
 import java.time.ZoneId
 import ke.carhire.LocalRecord
-import ke.carhire.domain.model.FinancialMonth
 import ke.carhire.domain.rules.MonthlyFinancials
 import ke.carhire.ui.components.*
-import ke.carhire.util.BusinessDateTime
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 @Composable
 fun FinancialReportScreen(all: List<LocalRecord>) {
@@ -36,21 +32,8 @@ fun FinancialReportScreen(all: List<LocalRecord>) {
     val selectedSeries =
         FinancialChartSeries.entries.filter { it.name in selectedSeriesNames }.toSet()
     val vehicles = remember(all) { VehicleChoices(all) }
-    var calculation by remember { mutableStateOf<Result<List<FinancialMonth>>?>(null) }
-    LaunchedEffect(all, from, to, vehicle) {
-        calculation = null
-        calculation =
-            withContext(Dispatchers.Default) {
-                runCatching {
-                    MonthlyFinancials.calculate(
-                        all,
-                        BusinessDateTime.date(from, "From"),
-                        BusinessDateTime.date(to, "Through"),
-                        vehicle,
-                    )
-                }
-            }
-    }
+    val calculation =
+        rememberReportCalculation(all, from, to, vehicle, MonthlyFinancials::calculate)
     LazyColumn(Modifier.testTag("financial-report"), contentPadding = PaddingValues(16.dp)) {
         item {
             Column {

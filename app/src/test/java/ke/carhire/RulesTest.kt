@@ -12,6 +12,86 @@ import org.junit.Test
 
 class RulesTest {
     @Test
+    fun bothReportsIsolateEachVehicleAndRestoreFleetTotals() {
+        val first = vehicle()
+        val second = vehicle()
+        val customer = customer()
+        val rows =
+            listOf(first to 1L, second to 2L).flatMap { (vehicle, factor) ->
+                val hire =
+                    hire(vehicle, customer).let {
+                        it.copy(
+                            payload =
+                                JsonObject(
+                                        it.data().toMutableMap().apply {
+                                            put("chargeMinor", JsonPrimitive(4000000 * factor))
+                                        }
+                                    )
+                                    .toString()
+                        )
+                    }
+                listOf(
+                    hire,
+                    LocalRecord(
+                        uuid(),
+                        "payments",
+                        payload =
+                            """{"hireId":"${hire.id}","amountMinor":${1000000 * factor},"date":"2026-01-03","kind":"Payment","status":"Received"}""",
+                    ),
+                    LocalRecord(
+                        uuid(),
+                        "payments",
+                        payload =
+                            """{"hireId":"${hire.id}","amountMinor":${100000 * factor},"date":"2026-01-03","kind":"Refund","status":"Received"}""",
+                    ),
+                    LocalRecord(
+                        uuid(),
+                        "payments",
+                        payload =
+                            """{"hireId":"${hire.id}","amountMinor":${200000 * factor},"date":"2026-01-03","kind":"Deposit","status":"Received"}""",
+                    ),
+                    LocalRecord(
+                        uuid(),
+                        "expenses",
+                        payload =
+                            """{"vehicleId":"${vehicle.id}","amountMinor":${500000 * factor},"date":"2026-01-02","paidDate":"2026-01-03","status":"Paid"}""",
+                    ),
+                    LocalRecord(
+                        uuid(),
+                        "damages",
+                        payload =
+                            """{"hireId":"${hire.id}","amountMinor":${200000 * factor},"responsibility":"Customer","status":"Charged"}""",
+                    ),
+                )
+            }
+        val from = LocalDate.parse("2026-01-01")
+        val to = LocalDate.parse("2026-01-31")
+        val expected =
+            mapOf(
+                "recognizedMinor" to 4000000L,
+                "collectionsMinor" to 900000L,
+                "outstandingMinor" to 3300000L,
+                "depositCashMinor" to 200000L,
+                "accruedExpensesMinor" to 500000L,
+                "cashExpensesMinor" to 500000L,
+                "expectedProfitMinor" to 3500000L,
+                "cashProfitMinor" to 400000L,
+            )
+        for ((id, factor) in
+            listOf("" to 3L, first.id to 1L, second.id to 2L, uuid() to 0L, "" to 3L)) {
+            assertEquals(
+                expected.mapValues { it.value * factor },
+                Rules.financials(rows, from, to, id),
+            )
+            val month =
+                ke.carhire.domain.rules.MonthlyFinancials.calculate(rows, from, to, id).single()
+            assertEquals(900000 * factor, month.paymentsReceivedMinor)
+            assertEquals(500000 * factor, month.expensesPaidMinor)
+            assertEquals(400000 * factor, month.netProfitMinor)
+        }
+    }
+
+    @Test
     fun fiftyThousandRecordsReconcileWithoutPerHireFullScans() {
         val rows = buildList {
             repeat(10000) { index ->
@@ -163,9 +243,13 @@ class RulesTest {
         val rows = listOf(v, c, first)
         Rules.validate("hires", adjacent.id, adjacent.data(), null, rows)
         val overlap = hire(v, c, "Booked", "2026-01-02T10:00:00Z", "2026-01-04T10:00:00Z")
-        assertThrows(IllegalArgumentException::class.java) {
-            Rules.validate("hires", overlap.id, overlap.data(), null, rows)
-        }
+        val error =
+            assertThrows(IllegalArgumentException::class.java) {
+                Rules.validate("hires", overlap.id, overlap.data(), null, rows)
+            }
+        assertTrue(error.message!!.contains("Vehicle has an overlapping hire:"))
+        assertTrue(error.message!!.contains("Days:2 | KES 40,000.00"))
+        assertFalse(error.message!!.contains(first.id))
     }
 
     @Test

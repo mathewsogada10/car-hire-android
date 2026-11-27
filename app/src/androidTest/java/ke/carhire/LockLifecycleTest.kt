@@ -646,6 +646,140 @@ class LockLifecycleTest {
     }
 
     @Test
+    fun screenshotsAreAllowedBeforeAndAfterUnlockAndRecreation() {
+        Vault(ApplicationProvider.getApplicationContext<Context>()).setPin("527491")
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            fun assertCaptureAllowed() {
+                scenario.onActivity { activity ->
+                    org.junit.Assert.assertEquals(
+                        0,
+                        activity.window.attributes.flags and
+                            android.view.WindowManager.LayoutParams.FLAG_SECURE,
+                    )
+                }
+                val screenshot =
+                    InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+                org.junit.Assert.assertNotNull(screenshot)
+                screenshot?.recycle()
+            }
+            awaitLock(true)
+            assertCaptureAllowed()
+            unlock(scenario)
+            assertCaptureAllowed()
+            scenario.recreate()
+            awaitLock(false)
+            assertCaptureAllowed()
+        }
+    }
+
+    @Test
+    fun monthlyReportRegistrationSelectionFiltersResultsAndCanReturnToAllVehicles() {
+        val app = ApplicationProvider.getApplicationContext<CarHireApp>()
+        Vault(app).setPin("527491")
+        val first = seedHireFixture(app)
+        val second = seedHireFixture(app)
+        val today = LocalDate.now(ZoneId.of("Africa/Nairobi"))
+        val category = uuid()
+        runBlocking {
+            app.repository.save(
+                "categories",
+                category,
+                buildJsonObject { put("name", "Monthly $category") },
+            )
+            listOf(first to 11100L, second to 22200L).forEach { (fixture, amount) ->
+                app.repository.save(
+                    "expenses",
+                    uuid(),
+                    buildJsonObject {
+                        put("vehicleId", fixture.vehicle)
+                        put("categoryId", category)
+                        put("name", "Monthly fixture expense")
+                        put("date", today.toString())
+                        put("paidDate", today.toString())
+                        put("status", "Paid")
+                        put("amountMinor", amount)
+                    },
+                )
+                app.repository.save(
+                    "payments",
+                    uuid(),
+                    buildJsonObject {
+                        put("hireId", fixture.hire)
+                        put("amountMinor", amount * 10)
+                        put("date", today.toString())
+                        put("kind", "Payment")
+                        put("status", "Received")
+                        put("method", "Cash")
+                    },
+                )
+            }
+        }
+        val total = runBlocking {
+            ke.carhire.domain.rules.MonthlyFinancials.calculate(
+                    app.repository.dao.all(),
+                    today.withDayOfYear(1),
+                    today,
+                )
+                .single { it.month == java.time.YearMonth.from(today) }
+        }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            unlock(scenario)
+            openNavigation()
+            compose
+                .onNodeWithTag("workspace-navigation")
+                .performScrollToNode(hasText("Financial report"))
+            compose
+                .onNode(
+                    hasText("Financial report") and
+                        hasAnyAncestor(hasTestTag("workspace-navigation"))
+                )
+                .performClick()
+            fun awaitAmount(title: String, amount: Long) {
+                val label = "$title: ${ke.carhire.ui.components.money(amount)}"
+                compose.waitUntil(10000) {
+                    compose.onAllNodesWithText(label).fetchSemanticsNodes().isNotEmpty()
+                }
+            }
+            fun showMonth() {
+                compose
+                    .onNodeWithTag("financial-report")
+                    .performScrollToNode(hasText(java.time.YearMonth.from(today).toString()))
+            }
+            showMonth()
+            awaitAmount("Paid expenses", total.expensesPaidMinor)
+            awaitAmount("Payments received", total.paymentsReceivedMinor)
+            awaitAmount("Net profit (cash basis)", total.netProfitMinor)
+            for ((fixture, expected) in listOf(first to 11100L, second to 22200L)) {
+                compose.onNodeWithTag("financial-report").performScrollToIndex(0)
+                compose
+                    .onNodeWithTag("dashboard-vehicle-search")
+                    .performTextReplacement(fixture.registration)
+                hideKeyboard(scenario)
+                compose.onNodeWithTag("dashboard-vehicle-${fixture.vehicle}").performClick()
+                compose
+                    .onNodeWithTag("dashboard-selected-vehicle")
+                    .assertTextEquals("Report vehicle: ${fixture.registration}")
+                showMonth()
+                awaitAmount("Paid expenses", expected)
+                awaitAmount("Payments received", expected * 10)
+                awaitAmount("Net profit (cash basis)", expected * 9)
+            }
+            scenario.recreate()
+            awaitLock(false)
+            showMonth()
+            awaitAmount("Paid expenses", 22200L)
+            awaitAmount("Payments received", 222000L)
+            awaitAmount("Net profit (cash basis)", 199800L)
+            compose.onNodeWithTag("financial-report").performScrollToIndex(0)
+            compose.onNodeWithText("All vehicles").performClick()
+            showMonth()
+            awaitAmount("Paid expenses", total.expensesPaidMinor)
+            awaitAmount("Payments received", total.paymentsReceivedMinor)
+            awaitAmount("Net profit (cash basis)", total.netProfitMinor)
+        }
+    }
+
+    @Test
     fun dashboardRegistrationSelectionFiltersResultsAndCanReturnToAllVehicles() {
         val app = ApplicationProvider.getApplicationContext<CarHireApp>()
         Vault(app).setPin("527491")
@@ -673,19 +807,32 @@ class LockLifecycleTest {
                         put("amountMinor", amount)
                     },
                 )
+                app.repository.save(
+                    "payments",
+                    uuid(),
+                    buildJsonObject {
+                        put("hireId", fixture.hire)
+                        put("amountMinor", amount * 10)
+                        put("date", today.toString())
+                        put("kind", "Payment")
+                        put("status", "Received")
+                        put("method", "Cash")
+                    },
+                )
             }
         }
         val total = runBlocking {
             ke.carhire.domain.rules.Rules.financials(
-                    app.repository.dao.all(),
-                    today.withDayOfYear(1),
-                    today,
-                )
-                .getValue("cashExpensesMinor")
+                app.repository.dao.all(),
+                today.withDayOfYear(1),
+                today,
+            )
         }
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             unlock(scenario)
-            awaitDashboardAmount("cashExpensesMinor", total)
+            awaitDashboardAmount("cashExpensesMinor", total.getValue("cashExpensesMinor"))
+            awaitDashboardAmount("collectionsMinor", total.getValue("collectionsMinor"))
+            awaitDashboardAmount("cashProfitMinor", total.getValue("cashProfitMinor"))
             compose
                 .onNodeWithTag("dashboard-vehicle-search")
                 .performScrollTo()
@@ -695,7 +842,7 @@ class LockLifecycleTest {
                 .onNodeWithText("No matching registrations. The report filter has not changed.")
                 .performScrollTo()
                 .assertIsDisplayed()
-            awaitDashboardAmount("cashExpensesMinor", total)
+            awaitDashboardAmount("cashExpensesMinor", total.getValue("cashExpensesMinor"))
             listOf(first to 11100L, second to 22200L).forEach { (fixture, expected) ->
                 val query =
                     " ${fixture.registration.take(3).lowercase()} ${fixture.registration.drop(3).lowercase()} "
@@ -712,6 +859,8 @@ class LockLifecycleTest {
                     .onNodeWithTag("dashboard-selected-vehicle")
                     .assertTextEquals("Report vehicle: ${fixture.registration}")
                 awaitDashboardAmount("cashExpensesMinor", expected)
+                awaitDashboardAmount("collectionsMinor", expected * 10)
+                awaitDashboardAmount("cashProfitMinor", expected * 9)
                 compose
                     .onNodeWithTag("dashboard-vehicle-search")
                     .performScrollTo()
@@ -723,7 +872,9 @@ class LockLifecycleTest {
             compose
                 .onNodeWithTag("dashboard-selected-vehicle")
                 .assertTextEquals("Report vehicle: All vehicles")
-            awaitDashboardAmount("cashExpensesMinor", total)
+            awaitDashboardAmount("cashExpensesMinor", total.getValue("cashExpensesMinor"))
+            awaitDashboardAmount("collectionsMinor", total.getValue("collectionsMinor"))
+            awaitDashboardAmount("cashProfitMinor", total.getValue("cashProfitMinor"))
         }
     }
 

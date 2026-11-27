@@ -9,7 +9,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,9 +27,7 @@ import ke.carhire.ui.components.ErrorText
 import ke.carhire.ui.components.VehicleChoices
 import ke.carhire.ui.components.VehicleFilter
 import ke.carhire.ui.components.money
-import ke.carhire.util.BusinessDateTime
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import ke.carhire.ui.components.rememberReportCalculation
 
 @Composable
 fun Home(all: List<LocalRecord>) {
@@ -40,21 +37,7 @@ fun Home(all: List<LocalRecord>) {
     }
     var vehicle by rememberSaveable { mutableStateOf("") }
     val vehicles = remember(all) { VehicleChoices(all) }
-    var calculation by remember { mutableStateOf<Result<Map<String, Long>>?>(null) }
-    LaunchedEffect(all, from, to, vehicle) {
-        calculation = null
-        calculation =
-            withContext(Dispatchers.Default) {
-                runCatching {
-                    Rules.financials(
-                        all,
-                        BusinessDateTime.date(from, "From"),
-                        BusinessDateTime.date(to, "Through"),
-                        vehicle,
-                    )
-                }
-            }
-    }
+    val calculation = rememberReportCalculation(all, from, to, vehicle, Rules::financials)
     val result = calculation?.getOrNull()
     Column(Modifier.verticalScroll(rememberScrollState()).padding(16.dp).testTag("dashboard")) {
         Text("Fleet overview", style = MaterialTheme.typography.headlineMedium)

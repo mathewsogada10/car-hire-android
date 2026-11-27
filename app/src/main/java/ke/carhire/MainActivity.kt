@@ -1,7 +1,6 @@
 package ke.carhire
 
 import android.os.Bundle
-import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
@@ -20,7 +19,6 @@ import ke.carhire.ui.workspace.Workspace
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         setContent {
             val app = application as CarHireApp
             val theme by app.appearance.theme.collectAsStateWithLifecycle()

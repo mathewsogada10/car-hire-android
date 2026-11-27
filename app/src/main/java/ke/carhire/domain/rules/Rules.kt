@@ -375,7 +375,9 @@ object Rules {
             require(
                 !(start < span.second.plusSeconds(buffer) && span.first < end.plusSeconds(buffer))
             ) {
-                "Vehicle has an overlapping ${r.kind}: ${r.id}"
+                if (r.kind == "hires")
+                    "Vehicle has an overlapping hire: ${HireTiming.conflictSummary(d)}"
+                else "Vehicle has an overlapping ${r.kind}: ${r.id}"
             }
         }
     }

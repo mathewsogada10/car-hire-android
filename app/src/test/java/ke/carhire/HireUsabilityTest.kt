@@ -47,6 +47,24 @@ class HireUsabilityTest {
     }
 
     @Test
+    fun hireConflictsShowLocalDatesRoundedDaysAndTheAgreedCharge() {
+        assertEquals(
+            "2026-12-01 10:00 - 2026-12-02 12:00 | Days:2 | KES 2,500.00",
+            HireTiming.conflictSummary(hire.data(), zone),
+        )
+        val actual =
+            json
+                .parseToJsonElement(
+                    """{"plannedStart":"2026-12-01T07:00:00Z","plannedEnd":"2026-12-02T09:00:00Z","actualStart":"2026-12-02T07:00:00Z","actualEnd":"2026-12-02T08:00:00Z","chargeMinor":250099}"""
+                )
+                .jsonObject
+        assertEquals(
+            "2026-12-02 10:00 - 2026-12-02 11:00 | Days:1 | KES 2,500.99",
+            HireTiming.conflictSummary(actual, zone),
+        )
+    }
+
+    @Test
     fun onlyMissingActualValuesDefaultToThePlan() {
         val data =
             json
